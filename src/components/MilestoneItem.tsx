@@ -7,12 +7,13 @@ import type { Milestone } from '../types';
 interface MilestoneItemProps {
   milestone: Milestone;
   isClient: boolean;
+  contractIsFunded: boolean;
   num: number;
   onApprove: () => Promise<void>;
   onComplete: () => Promise<void>;
 }
 
-export function MilestoneItem({ milestone, isClient, num, onApprove, onComplete }: MilestoneItemProps) {
+export function MilestoneItem({ milestone, isClient, contractIsFunded, num, onApprove, onComplete }: MilestoneItemProps) {
   const isPending = milestone.status === 'Pending';
   const isCompleted = milestone.status === 'Completed';
   const isPaid = milestone.status === 'Paid';
@@ -54,10 +55,13 @@ export function MilestoneItem({ milestone, isClient, num, onApprove, onComplete 
 
         {isPending && (
           <div className="flex items-center gap-3">
-            <span className="badge badge-yellow px-3 py-1 rounded-full text-[10px] font-bold">In Progress</span>
+            <span className="badge badge-yellow px-3 py-1 rounded-full text-[10px] font-bold">
+              {contractIsFunded ? 'In Progress' : 'Awaiting Escrow'}
+            </span>
             {!isClient && (
               <button 
                 onClick={onComplete}
+                disabled={!contractIsFunded}
                 className="bg-bento-card border border-bento-border text-bento-text-bold text-[11px] font-bold px-4 py-1.5 rounded-lg shadow-sm hover:bg-slate-800 transition-colors"
               >
                 Mark Done

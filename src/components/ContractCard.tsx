@@ -1,24 +1,22 @@
-import { useState } from 'react';
-import { ChevronDown, ChevronUp, User, Layout, Calendar, ArrowRight, ShieldCheck, CheckCircle2 } from 'lucide-react';
-import { Badge } from './ui/Badge';
 import { Button } from './ui/Button';
 import { MilestoneItem } from './MilestoneItem';
 import { cn, truncateAddress, formatBalance } from '../lib/utils';
 import type { Contract, UserMode } from '../types';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion } from 'motion/react';
 
 interface ContractCardProps {
   contract: Contract;
   userMode: UserMode;
+  onFund: (contractId: string) => Promise<void>;
   onApprove: (contractId: string, milestoneId: string) => Promise<void>;
   onComplete: (contractId: string, milestoneId: string) => Promise<void>;
 }
 
-export function ContractCard({ contract, userMode, onApprove, onComplete }: ContractCardProps) {
-  const [isExpanded, setIsExpanded] = useState(true);
-
+export function ContractCard({ contract, userMode, onFund, onApprove, onComplete }: ContractCardProps) {
   const progress = (contract.releasedAmount / contract.totalBudget) * 100;
   const isClient = userMode === 'Client';
+  const isProposed = contract.status === 'Proposed';
+  const lockedAmount = contract.depositedAmount - contract.releasedAmount;
 
   return (
     <div className="bg-bento-card rounded-bento border border-bento-border shadow-sm overflow-hidden transition-all">
@@ -27,9 +25,11 @@ export function ContractCard({ contract, userMode, onApprove, onComplete }: Cont
           <div>
             <span className={cn(
                "badge px-3 py-1 rounded-full text-[10px] font-bold",
-               contract.status === 'Active' ? "bg-indigo-500/10 text-indigo-400 border border-indigo-500/20" : "bg-slate-800 text-slate-400 border border-slate-700"
+               contract.status === 'Active' ? "bg-indigo-500/10 text-indigo-400 border border-indigo-500/20" :
+               contract.status === 'Proposed' ? "bg-amber-500/10 text-amber-300 border border-amber-500/20" :
+               "bg-slate-800 text-slate-400 border border-slate-700"
             )}>
-              {contract.status === 'Active' ? 'Active Engagement' : 'Completed'}
+              {contract.status === 'Active' ? 'Active Engagement' : contract.status === 'Proposed' ? 'Awaiting Escrow Funding' : 'Completed'}
             </span>
             <h3 className="text-xl font-bold mt-2 text-bento-text-bold tracking-tight">{contract.title}</h3>
             <p className="text-[11px] text-bento-text-muted mt-1 font-medium">
@@ -37,10 +37,26 @@ export function ContractCard({ contract, userMode, onApprove, onComplete }: Cont
             </p>
           </div>
           <div className="text-right">
-            <div className="text-lg font-bold text-bento-text-bold">{formatBalance(contract.totalBudget)} MON</div>
-            <span className="text-[10px] font-bold text-bento-text-muted uppercase tracking-[0.5px]">Total Escrowed</span>
+            <div className="text-lg font-bold text-bento-text-bold">{formatBalance(contract.depositedAmount)} MON</div>
+            <span className="text-[10px] font-bold text-bento-text-muted uppercase tracking-[0.5px]">Escrow Deposited</span>
+            <p className="text-[10px] mt-1 text-bento-text-muted">
+              Locked: {formatBalance(Math.max(lockedAmount, 0))} / {formatBalance(contract.totalBudget)} MON
+            </p>
           </div>
         </div>
+
+        {isProposed && (
+          <div className="mt-4 p-3 rounded-xl border border-amber-500/30 bg-amber-500/5 flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <p className="text-xs text-amber-200">
+              Contract is accepted by both parties. Client must deposit the escrow before delivery can start.
+            </p>
+            {isClient && (
+              <Button size="sm" className="w-full md:w-auto" onClick={() => onFund(contract.id)}>
+                Deposit Escrow
+              </Button>
+            )}
+          </div>
+        )}
 
         <div className="mt-5">
           <div className="flex justify-between items-center mb-2">
@@ -64,6 +80,7 @@ export function ContractCard({ contract, userMode, onApprove, onComplete }: Cont
               key={milestone.id}
               milestone={milestone}
               isClient={isClient}
+              contractIsFunded={!isProposed}
               num={idx + 1}
               onApprove={() => onApprove(contract.id, milestone.id)}
               onComplete={() => onComplete(contract.id, milestone.id)}

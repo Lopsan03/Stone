@@ -1,14 +1,26 @@
 import { useState } from 'react';
-import { Plus, Trash2, Send, FileText, User, CreditCard } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { Button } from './ui/Button';
-import type { Milestone } from '../types';
+import type { Milestone, Relationship } from '../types';
 
 interface CreateContractFormProps {
-  onSubmit: (contractData: any) => Promise<void>;
+  userMode: 'Client' | 'Freelancer';
+  relationships: Relationship[];
+  resolveName: (userId: string) => string;
+  resolveWallet: (userId: string) => string;
+  onSubmit: (contractData: {
+    relationshipId?: string;
+    title: string;
+    description: string;
+    freelancerAddress: string;
+    totalBudget: number;
+    milestones: Milestone[];
+  }) => Promise<void>;
   isLoading: boolean;
 }
 
-export function CreateContractForm({ onSubmit, isLoading }: CreateContractFormProps) {
+export function CreateContractForm({ userMode, relationships, resolveName, resolveWallet, onSubmit, isLoading }: CreateContractFormProps) {
+  const [selectedRelationshipId, setSelectedRelationshipId] = useState<string>('');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [freelancerAddress, setFreelancerAddress] = useState('');
@@ -34,14 +46,27 @@ export function CreateContractForm({ onSubmit, isLoading }: CreateContractFormPr
 
   const totalBudget = milestones.reduce((acc, m) => acc + (Number(m.amount) || 0), 0);
 
+  const canCreateContract = userMode === 'Client' && relationships.length > 0;
+
+  const selectedRelationship = relationships.find((rel) => rel.id === selectedRelationshipId);
+
+  const selectedFreelancerAddress = selectedRelationship
+    ? resolveWallet(selectedRelationship.freelancerUserId)
+    : freelancerAddress;
+
+  const selectedFreelancerName = selectedRelationship
+    ? resolveName(selectedRelationship.freelancerUserId)
+    : '';
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title || !freelancerAddress || milestones.some(m => !m.title || m.amount <= 0)) return;
+    if (!title || !selectedFreelancerAddress || milestones.some(m => !m.title || m.amount <= 0)) return;
 
     await onSubmit({
+      relationshipId: selectedRelationshipId || undefined,
       title,
       description,
-      freelancerAddress,
+      freelancerAddress: selectedFreelancerAddress,
       totalBudget,
       milestones: milestones.map((m, i) => ({
         ...m,
@@ -53,8 +78,20 @@ export function CreateContractForm({ onSubmit, isLoading }: CreateContractFormPr
     setTitle('');
     setDescription('');
     setFreelancerAddress('');
+    setSelectedRelationshipId('');
     setMilestones([{ title: 'Initial Phase', amount: 0 }]);
   };
+
+  if (!canCreateContract) {
+    return (
+      <div className="bg-bento-card rounded-bento border border-bento-border p-5 shadow-sm">
+        <h2 className="text-sm font-bold text-bento-text-bold mb-3">Create New Contract</h2>
+        <p className="text-xs text-bento-text-muted">
+          Accept a proposal in Relationships first. Contracts can only be created after both parties agree.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-bento-card rounded-bento border border-bento-border p-5 shadow-sm">
@@ -64,15 +101,35 @@ export function CreateContractForm({ onSubmit, isLoading }: CreateContractFormPr
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="space-y-1">
+          <label className="text-[12px] font-bold text-bento-text-muted">Relationship</label>
+          <select
+            value={selectedRelationshipId}
+            onChange={(e) => setSelectedRelationshipId(e.target.value)}
+            className="w-full p-2 border border-bento-border rounded-lg text-sm bg-slate-900 focus:ring-1 focus:ring-bento-primary outline-none text-bento-text-bold"
+          >
+            <option value="">Manual freelancer address</option>
+            {relationships.map((relationship) => (
+              <option key={relationship.id} value={relationship.id}>
+                {resolveName(relationship.freelancerUserId)} - {relationship.id.slice(0, 6)}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="space-y-1">
           <label className="text-[12px] font-bold text-bento-text-muted">Freelancer Address</label>
           <input
             type="text"
-            value={freelancerAddress}
+            value={selectedFreelancerAddress}
             onChange={(e) => setFreelancerAddress(e.target.value)}
             placeholder="0x..."
             className="w-full p-2 border border-bento-border rounded-lg text-sm bg-slate-900 focus:ring-1 focus:ring-bento-primary outline-none text-bento-text-bold"
+            readOnly={Boolean(selectedRelationship)}
             required
           />
+          {selectedFreelancerName && (
+            <p className="text-[10px] text-bento-text-muted">Selected freelancer: {selectedFreelancerName}</p>
+          )}
         </div>
 
         <div className="space-y-1">
@@ -84,6 +141,16 @@ export function CreateContractForm({ onSubmit, isLoading }: CreateContractFormPr
             placeholder="e.g. Website Redesign"
             className="w-full p-2 border border-bento-border rounded-lg text-sm bg-slate-900 focus:ring-1 focus:ring-bento-primary outline-none text-bento-text-bold"
             required
+          />
+        </div>
+
+        <div className="space-y-1">
+          <label className="text-[12px] font-bold text-bento-text-muted">Requirements</label>
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Define scope, acceptance criteria, and deliverables"
+            className="w-full p-2 border border-bento-border rounded-lg text-sm bg-slate-900 focus:ring-1 focus:ring-bento-primary outline-none text-bento-text-bold min-h-20"
           />
         </div>
 
@@ -138,7 +205,7 @@ export function CreateContractForm({ onSubmit, isLoading }: CreateContractFormPr
           isLoading={isLoading}
           className="w-full p-3 bg-bento-primary text-white font-bold rounded-lg text-sm shadow-lg shadow-indigo-500/20 mt-4"
         >
-          Create & Deposit
+          Create Contract
         </Button>
       </form>
     </div>

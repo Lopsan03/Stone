@@ -2,11 +2,17 @@ import { Trophy, Star, TrendingUp, DollarSign } from 'lucide-react';
 import type { Reputation } from '../types';
 import { formatBalance } from '../lib/utils';
 
-export function ReputationCard({ reputation }: { reputation: Reputation }) {
+export function ReputationCard({
+  reputation,
+  title = 'Freelancer Reputation',
+}: {
+  reputation: Reputation;
+  title?: string;
+}) {
   return (
     <div className="bg-bento-card rounded-bento border border-bento-border p-5 shadow-sm">
       <h2 className="text-sm font-bold text-bento-text-bold mb-5 flex items-center justify-between">
-        Freelancer Reputation
+        {title}
         <Trophy className="w-4 h-4 text-bento-primary" />
       </h2>
 

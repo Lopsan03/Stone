@@ -10,7 +10,7 @@ export function Header({ userAddress = '0x71C...4f2e' }: { userAddress?: string 
         <div className="w-8 h-8 rounded-lg bg-bento-primary flex items-center justify-center shadow-[0_0_15px_rgba(99,102,241,0.3)]">
           <ShieldCheck className="w-5 h-5 text-white" strokeWidth={3} />
         </div>
-        <span className="text-lg font-extrabold text-bento-text-bold tracking-tight">TrustWork</span>
+        <span className="text-lg font-extrabold text-bento-text-bold tracking-tight">Stone</span>
       </div>
 
       <div className="flex items-center gap-4">
