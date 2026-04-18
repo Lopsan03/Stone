@@ -1,0 +1,71 @@
+import { CheckCircle2, Circle, Clock, DollarSign, ArrowRight } from 'lucide-react';
+import { Badge } from './ui/Badge';
+import { Button } from './ui/Button';
+import { cn, formatBalance } from '../lib/utils';
+import type { Milestone } from '../types';
+
+interface MilestoneItemProps {
+  milestone: Milestone;
+  isClient: boolean;
+  num: number;
+  onApprove: () => Promise<void>;
+  onComplete: () => Promise<void>;
+}
+
+export function MilestoneItem({ milestone, isClient, num, onApprove, onComplete }: MilestoneItemProps) {
+  const isPending = milestone.status === 'Pending';
+  const isCompleted = milestone.status === 'Completed';
+  const isPaid = milestone.status === 'Paid';
+
+  return (
+    <div className={cn(
+      "flex items-center justify-between p-4 border rounded-xl transition-all",
+      isPaid ? "bg-slate-900 border-bento-border" : 
+      isCompleted ? "border-bento-primary bg-bento-primary-soft shadow-[0_0_15px_rgba(99,102,241,0.1)]" : 
+      "bg-slate-900/40 border-bento-border"
+    )}>
+      <div className="flex items-center gap-4">
+        <div>
+          <div className="text-[13px] font-bold text-bento-text-bold">{milestone.title}</div>
+          <div className="text-[11px] font-bold text-bento-text-muted uppercase tracking-wider">{formatBalance(milestone.amount)} MON</div>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-3">
+        {isPaid && (
+          <span className="badge badge-green px-3 py-1 rounded-full text-[10px] font-bold">Paid</span>
+        )}
+        
+        {isCompleted && isClient && (
+          <div className="flex items-center gap-3">
+            <span className="badge badge-blue px-3 py-1 rounded-full text-[10px] font-bold">Awaiting Review</span>
+            <button 
+              onClick={onApprove}
+              className="bg-bento-primary text-white text-[11px] font-bold px-4 py-1.5 rounded-lg shadow-lg shadow-indigo-500/20 hover:opacity-90 transition-opacity"
+            >
+              Approve & Pay
+            </button>
+          </div>
+        )}
+
+        {isCompleted && !isClient && (
+          <span className="badge badge-blue px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-tight">Pending Approval</span>
+        )}
+
+        {isPending && (
+          <div className="flex items-center gap-3">
+            <span className="badge badge-yellow px-3 py-1 rounded-full text-[10px] font-bold">In Progress</span>
+            {!isClient && (
+              <button 
+                onClick={onComplete}
+                className="bg-bento-card border border-bento-border text-bento-text-bold text-[11px] font-bold px-4 py-1.5 rounded-lg shadow-sm hover:bg-slate-800 transition-colors"
+              >
+                Mark Done
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
