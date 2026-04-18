@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus } from 'lucide-react';
+import { Plus, AlertCircle } from 'lucide-react';
 import { Button } from './ui/Button';
 import type { Milestone, Relationship } from '../types';
 
@@ -19,13 +19,24 @@ interface CreateContractFormProps {
   isLoading: boolean;
 }
 
+// Demo contract template
+const DEMO_CONTRACT = {
+  title: 'Smart Contract Dashboard - Phase 1',
+  description: 'Build a secure escrow dashboard with milestone tracking and fund management. Includes UI, backend integration, and testing.',
+  milestones: [
+    { title: 'Architecture & Design Specs', amount: 2500 },
+    { title: 'Frontend Components & Logic', amount: 3500 },
+    { title: 'Testing & Launch Support', amount: 2000 },
+  ],
+};
+
 export function CreateContractForm({ userMode, relationships, resolveName, resolveWallet, onSubmit, isLoading }: CreateContractFormProps) {
   const [selectedRelationshipId, setSelectedRelationshipId] = useState<string>('');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [freelancerAddress, setFreelancerAddress] = useState('');
   const [milestones, setMilestones] = useState<Omit<Milestone, 'id' | 'status'>[]>([
-    { title: 'Initial Phase', amount: 0 }
+    { title: '', amount: 0 }
   ]);
 
   const addMilestone = () => {
@@ -46,6 +57,12 @@ export function CreateContractForm({ userMode, relationships, resolveName, resol
 
   const totalBudget = milestones.reduce((acc, m) => acc + (Number(m.amount) || 0), 0);
 
+  // Validation
+  const hasTitle = title.trim().length > 0;
+  const hasFreelancerAddress = freelancerAddress.trim().length > 0;
+  const hasValidMilestones = milestones.length > 0 && milestones.every(m => m.title.trim().length > 0 && Number(m.amount) > 0);
+  const isFormValid = hasTitle && hasFreelancerAddress && hasValidMilestones;
+
   const canCreateContract = userMode === 'Client' && relationships.length > 0;
 
   const selectedRelationship = relationships.find((rel) => rel.id === selectedRelationshipId);
@@ -60,7 +77,7 @@ export function CreateContractForm({ userMode, relationships, resolveName, resol
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title || !selectedFreelancerAddress || milestones.some(m => !m.title || m.amount <= 0)) return;
+    if (!isFormValid) return;
 
     await onSubmit({
       relationshipId: selectedRelationshipId || undefined,
@@ -75,11 +92,21 @@ export function CreateContractForm({ userMode, relationships, resolveName, resol
       }))
     });
 
+    // Reset form
     setTitle('');
     setDescription('');
     setFreelancerAddress('');
     setSelectedRelationshipId('');
-    setMilestones([{ title: 'Initial Phase', amount: 0 }]);
+    setMilestones([{ title: '', amount: 0 }]);
+  };
+
+  const loadDemoData = () => {
+    setTitle(DEMO_CONTRACT.title);
+    setDescription(DEMO_CONTRACT.description);
+    setMilestones(DEMO_CONTRACT.milestones);
+    if (relationships.length > 0) {
+      setSelectedRelationshipId(relationships[0].id);
+    }
   };
 
   if (!canCreateContract) {
@@ -95,9 +122,30 @@ export function CreateContractForm({ userMode, relationships, resolveName, resol
 
   return (
     <div className="bg-bento-card rounded-bento border border-bento-border p-5 shadow-sm">
-      <h2 className="text-sm font-bold text-bento-text-bold mb-4 flex items-center justify-between">
-        Create New Contract
-      </h2>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-sm font-bold text-bento-text-bold">Create New Contract</h2>
+        <button
+          type="button"
+          onClick={loadDemoData}
+          className="text-[10px] px-2 py-1 bg-indigo-500/10 text-indigo-300 border border-indigo-500/30 rounded hover:bg-indigo-500/20 transition-colors font-bold"
+        >
+          Quick Demo
+        </button>
+      </div>
+
+      {/* Validation Feedback */}
+      {!isFormValid && (
+        <div className="mb-4 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg space-y-2">
+          <div className="flex items-start gap-2 text-[10px] text-amber-200">
+            <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              {!hasTitle && <p>• Add a project title</p>}
+              {!hasFreelancerAddress && <p>• Select or enter freelancer address</p>}
+              {!hasValidMilestones && <p>• Add milestones with title and amount (must be greater than 0)</p>}
+            </div>
+          </div>
+        </div>
+      )}
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="space-y-1">
@@ -168,25 +216,38 @@ export function CreateContractForm({ userMode, relationships, resolveName, resol
           <label className="text-[12px] font-bold text-bento-text-muted">Milestones</label>
           <div className="max-h-40 overflow-y-auto space-y-2 pr-1">
             {milestones.map((milestone, index) => (
-              <div key={index} className="bg-slate-900 border border-bento-border rounded-lg p-2 space-y-2">
-                <div className="flex justify-between items-center">
+              <div key={index} className="bg-slate-900 border border-bento-border rounded-lg p-3 space-y-2">
+                <div className="flex justify-between items-center gap-2">
                   <input
                     type="text"
                     value={milestone.title}
                     onChange={(e) => updateMilestone(index, 'title', e.target.value)}
-                    placeholder="Phase title"
-                    className="bg-transparent border-none text-[12px] font-medium focus:ring-0 w-2/3 p-0 text-bento-text-bold"
+                    placeholder="Phase title (e.g., Design Phase)"
+                    className="bg-transparent border-b border-bento-border text-[12px] font-medium focus:ring-0 flex-1 p-1 text-bento-text-bold placeholder:text-bento-text-muted/50 outline-none"
                   />
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-1 shrink-0">
                     <input
                       type="number"
-                      value={milestone.amount}
+                      min="1"
+                      value={milestone.amount || ''}
                       onChange={(e) => updateMilestone(index, 'amount', Number(e.target.value))}
-                      className="bg-transparent border-none text-[12px] font-bold text-right focus:ring-0 w-16 p-0 text-bento-text-bold"
+                      placeholder="0"
+                      className="bg-transparent border-b border-bento-border text-[12px] font-bold text-right focus:ring-0 w-20 p-1 text-bento-text-bold placeholder:text-bento-text-muted/50 outline-none"
                     />
                     <span className="text-[10px] text-bento-text-muted">MON</span>
                   </div>
                 </div>
+                {milestones.length > 1 && (
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => removeMilestone(index)}
+                      className="text-[10px] text-red-400 hover:text-red-300 font-bold"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -203,7 +264,8 @@ export function CreateContractForm({ userMode, relationships, resolveName, resol
         <Button
           type="submit"
           isLoading={isLoading}
-          className="w-full p-3 bg-bento-primary text-white font-bold rounded-lg text-sm shadow-lg shadow-indigo-500/20 mt-4"
+          disabled={!isFormValid || isLoading}
+          className="w-full p-3 bg-bento-primary text-white font-bold rounded-lg text-sm shadow-lg shadow-indigo-500/20 mt-4 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           Create Contract
         </Button>

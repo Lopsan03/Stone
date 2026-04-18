@@ -1,4 +1,5 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
+import type { Address } from 'viem';
 import type {
   Contract,
   MarketplaceProfile,
@@ -9,6 +10,21 @@ import type {
   Reputation,
   UserMode,
 } from '../types';
+import {
+  approveAndPayMilestoneTx,
+  connectWallet as connectEscrowWallet,
+  createJobTx,
+  depositFundsTx,
+  fromWei,
+  getConnectedAccount,
+  getCurrentChainId,
+  readJob,
+  readJobCounter,
+  readJobProgress,
+  readMilestones,
+  switchToEscrowChain,
+} from '../lib/stoneEscrowClient';
+import { escrowConfig, hasEscrowConfig } from '../lib/escrowConfig';
 
 const ME_CLIENT_ID = 'me-client';
 const ME_FREELANCER_ID = 'me-freelancer';
@@ -174,30 +190,10 @@ const MOCK_RELATIONSHIPS: Relationship[] = [
   },
 ];
 
-const MOCK_CONTRACTS: Contract[] = [
-  {
-    id: '1',
-    relationshipId: 'r-1',
-    title: 'Mobile App Development (React Native)',
-    description: 'Build a production-ready mobile app for a health startup including auth and dashboards.',
-    clientAddress: ME_CLIENT_WALLET,
-    freelancerAddress: ME_FREELANCER_WALLET,
-    totalBudget: 5000,
-    depositedAmount: 5000,
-    releasedAmount: 2000,
-    status: 'Active',
-    createdAt: Date.now() - 1000 * 60 * 60 * 24 * 5,
-    milestones: [
-      { id: 'm1', title: 'UI Design & Wireframes', amount: 1000, status: 'Paid' },
-      { id: 'm2', title: 'Backend API Integration', amount: 1000, status: 'Paid' },
-      { id: 'm3', title: 'Main Dashboards Phase 1', amount: 1500, status: 'Completed' },
-      { id: 'm4', title: 'Final QA & App Store Submission', amount: 1500, status: 'Pending' },
-    ],
-  },
-];
+type CompletedMilestonesMap = Record<string, Record<string, boolean>>;
 
 export function useEscrow() {
-  const [contracts, setContracts] = useState<Contract[]>(MOCK_CONTRACTS);
+  const [contracts, setContracts] = useState<Contract[]>([]);
   const [freelancerReputation] = useState<Reputation>(MOCK_REPUTATION);
   const [clientReputation] = useState<Reputation>(MOCK_CLIENT_REPUTATION);
   const [userMode, setUserMode] = useState<UserMode>('Client');
@@ -206,9 +202,80 @@ export function useEscrow() {
   const [proposals, setProposals] = useState<Proposal[]>(MOCK_PROPOSALS);
   const [relationships, setRelationships] = useState<Relationship[]>(MOCK_RELATIONSHIPS);
   const [isPendingTx, setIsPendingTx] = useState(false);
+  const [walletAddress, setWalletAddress] = useState<string>('');
+  const [isWrongChain, setIsWrongChain] = useState(false);
+  const [completedMilestones, setCompletedMilestones] = useState<CompletedMilestonesMap>({});
 
   const currentUserId = userMode === 'Client' ? ME_CLIENT_ID : ME_FREELANCER_ID;
-  const currentWallet = userMode === 'Client' ? ME_CLIENT_WALLET : ME_FREELANCER_WALLET;
+  const normalizedWallet = walletAddress.toLowerCase();
+
+  const syncChainState = useCallback(async () => {
+    if (!hasEscrowConfig) {
+      setContracts([]);
+      return;
+    }
+
+    try {
+      const connected = await getConnectedAccount();
+      setWalletAddress(connected ?? '');
+
+      const chainId = await getCurrentChainId();
+      setIsWrongChain(chainId !== null && chainId !== escrowConfig.chainId);
+
+      const counter = await readJobCounter();
+      const ids = Array.from({ length: Number(counter) }, (_, index) => BigInt(index + 1));
+
+      const loaded = await Promise.all(
+        ids.map(async (jobId): Promise<Contract> => {
+          const [job, milestones, progress] = await Promise.all([
+            readJob(jobId),
+            readMilestones(jobId),
+            readJobProgress(jobId),
+          ]);
+
+          const paidMilestones = Number(progress.paidMilestones);
+          const totalMilestones = Number(progress.totalMilestones);
+          const localCompleted = completedMilestones[String(job.id)] ?? {};
+
+          return {
+            id: String(job.id),
+            title: job.title,
+            description: job.description,
+            clientAddress: job.client,
+            freelancerAddress: job.freelancer,
+            totalBudget: fromWei(job.totalAmount),
+            depositedAmount: fromWei(job.totalAmount) - fromWei(progress.totalPaid),
+            releasedAmount: fromWei(progress.totalPaid),
+            status:
+              paidMilestones === totalMilestones && totalMilestones > 0
+                ? 'Completed'
+                : job.fundedAmount > 0n || progress.totalPaid > 0n
+                  ? 'Active'
+                  : 'Proposed',
+            milestones: milestones.map((milestone, index): Milestone => {
+              const milestoneId = `${job.id.toString()}-${index}`;
+              const isCompletedLocal = Boolean(localCompleted[milestoneId]);
+              return {
+                id: milestoneId,
+                title: milestone.title,
+                amount: fromWei(milestone.amount),
+                status: milestone.paid ? 'Paid' : isCompletedLocal ? 'Completed' : 'Pending',
+              };
+            }),
+            createdAt: Number(job.createdAt) * 1000,
+          };
+        })
+      );
+
+      setContracts(loaded.sort((a, b) => b.createdAt - a.createdAt));
+    } catch (error) {
+      console.error(error);
+    }
+  }, [completedMilestones]);
+
+  useEffect(() => {
+    syncChainState();
+  }, [syncChainState]);
 
   const totalEarnings = useMemo(() => contracts.reduce((acc, c) => acc + c.releasedAmount, 0), [contracts]);
 
@@ -244,10 +311,11 @@ export function useEscrow() {
   const contractsForCurrentUser = useMemo(
     () =>
       contracts.filter((contract) => {
-        if (userMode === 'Client') return contract.clientAddress === currentWallet;
-        return contract.freelancerAddress === currentWallet;
+        if (!normalizedWallet) return false;
+        if (userMode === 'Client') return contract.clientAddress.toLowerCase() === normalizedWallet;
+        return contract.freelancerAddress.toLowerCase() === normalizedWallet;
       }),
-    [contracts, currentWallet, userMode]
+    [contracts, normalizedWallet, userMode]
   );
 
   const activeContracts = useMemo(
@@ -416,106 +484,185 @@ export function useEscrow() {
     [currentUserId, getProfileById, proposals, userMode]
   );
 
+  const connectWallet = useCallback(async () => {
+    const account = await connectEscrowWallet();
+    const chainId = await getCurrentChainId();
+    setWalletAddress(account);
+    setIsWrongChain(chainId !== null && chainId !== escrowConfig.chainId);
+  }, []);
+
+  const ensureChain = useCallback(async () => {
+    if (!walletAddress) {
+      throw new Error('Connect wallet first');
+    }
+    if (isWrongChain) {
+      await switchToEscrowChain();
+      const chainId = await getCurrentChainId();
+      setIsWrongChain(chainId !== null && chainId !== escrowConfig.chainId);
+      if (chainId !== escrowConfig.chainId) {
+        throw new Error('Please switch to the configured escrow chain');
+      }
+    }
+  }, [isWrongChain, walletAddress]);
+
   const createContract = useCallback(async (data: Omit<Contract, 'id' | 'clientAddress' | 'status' | 'depositedAmount' | 'releasedAmount' | 'createdAt'>) => {
     setIsPendingTx(true);
-    // Simulate transaction
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    const newContract: Contract = {
-      ...data,
-      id: Math.random().toString(36).substr(2, 9),
-      clientAddress: ME_CLIENT_WALLET,
-      status: 'Proposed',
-      depositedAmount: 0,
-      releasedAmount: 0,
-      createdAt: Date.now(),
-    };
-    
-    setContracts(prev => [newContract, ...prev]);
-    setIsPendingTx(false);
-  }, []);
+    try {
+      await ensureChain();
+      await createJobTx({
+        account: walletAddress as Address,
+        freelancer: data.freelancerAddress as Address,
+        title: data.title,
+        description: data.description,
+        milestoneTitles: data.milestones.map((milestone) => milestone.title),
+        milestoneAmountsMon: data.milestones.map((milestone) => milestone.amount),
+      });
+      await syncChainState();
+    } catch (error) {
+      console.error(error);
+      window.alert(error instanceof Error ? error.message : 'Failed to create contract');
+    } finally {
+      setIsPendingTx(false);
+    }
+  }, [ensureChain, syncChainState, walletAddress]);
 
   const fundContract = useCallback(async (contractId: string) => {
     setIsPendingTx(true);
-    await new Promise((resolve) => setTimeout(resolve, 1600));
+    try {
+      await ensureChain();
+      const contract = contracts.find((item) => item.id === contractId);
+      if (!contract) throw new Error('Contract not found');
 
+      await depositFundsTx({
+        account: walletAddress as Address,
+        jobId: BigInt(contractId),
+        amountMon: contract.totalBudget,
+      });
+      await syncChainState();
+    } catch (error) {
+      console.error(error);
+      window.alert(error instanceof Error ? error.message : 'Failed to deposit funds');
+    } finally {
+      setIsPendingTx(false);
+    }
+  }, [contracts, ensureChain, syncChainState, walletAddress]);
+
+  const markMilestoneCompleted = useCallback(async (contractId: string, milestoneId: string) => {
     setContracts((prev) =>
       prev.map((contract) => {
         if (contract.id !== contractId) return contract;
+        const milestone = contract.milestones.find((item) => item.id === milestoneId);
+        if (!milestone) return contract;
 
-        // Escrow can only be funded once, from proposed state.
-        if (contract.status !== 'Proposed' || contract.depositedAmount > 0) {
+        const isContractFunded = contract.status === 'Active' && contract.depositedAmount > 0;
+        if (!isContractFunded || milestone.status !== 'Pending' || !canProgressMilestone(contract.milestones, milestoneId)) {
           return contract;
         }
 
         return {
           ...contract,
-          status: 'Active',
-          depositedAmount: contract.totalBudget,
+          milestones: contract.milestones.map((item): Milestone =>
+            item.id === milestoneId ? { ...item, status: 'Completed' } : item
+          ),
         };
       })
     );
-    setIsPendingTx(false);
-  }, []);
 
-  const markMilestoneCompleted = useCallback(async (contractId: string, milestoneId: string) => {
+    setCompletedMilestones((prev) => ({
+      ...prev,
+      [contractId]: {
+        ...(prev[contractId] ?? {}),
+        [milestoneId]: true,
+      },
+    }));
+  }, [canProgressMilestone]);
+
+  const approveAndPayMilestone = useCallback(async (contractId: string, milestoneId: string) => {
+    setIsPendingTx(true);
+    try {
+      await ensureChain();
+
+      const contract = contracts.find((item) => item.id === contractId);
+      if (!contract) throw new Error('Contract not found');
+
+      const milestoneIndex = contract.milestones.findIndex((item) => item.id === milestoneId);
+      if (milestoneIndex < 0) throw new Error('Milestone not found');
+
+      const milestone = contract.milestones[milestoneIndex];
+      if (milestone.status !== 'Completed') {
+        throw new Error('Freelancer must mark milestone done before approval');
+      }
+
+      await approveAndPayMilestoneTx({
+        account: walletAddress as Address,
+        jobId: BigInt(contractId),
+        milestoneIndex,
+      });
+
+      setCompletedMilestones((prev) => ({
+        ...prev,
+        [contractId]: {
+          ...(prev[contractId] ?? {}),
+          [milestoneId]: false,
+        },
+      }));
+
+      await syncChainState();
+    } catch (error) {
+      console.error(error);
+      window.alert(error instanceof Error ? error.message : 'Failed to approve and pay milestone');
+    } finally {
+      setIsPendingTx(false);
+    }
+  }, [contracts, ensureChain, syncChainState, walletAddress]);
+
+  const initiateDispute = useCallback(async (contractId: string, reason: string) => {
     setIsPendingTx(true);
     await new Promise(resolve => setTimeout(resolve, 1500));
     
     setContracts(prev => prev.map(c => {
       if (c.id !== contractId) return c;
-
-      const milestone = c.milestones.find((m) => m.id === milestoneId);
-      if (!milestone) return c;
-
-      const isContractFunded = c.status === 'Active' && c.depositedAmount >= c.totalBudget;
-      if (!isContractFunded || milestone.status !== 'Pending' || !canProgressMilestone(c.milestones, milestoneId)) {
-        return c;
-      }
-
       return {
         ...c,
-        milestones: c.milestones.map((m): Milestone =>
-          m.id === milestoneId ? { ...m, status: 'Completed' } : m
-        )
+        status: 'Disputed',
+        disputeStatus: 'Pending' as const,
+        disputeReason: reason,
+        disputedAt: Date.now(),
       };
     }));
     setIsPendingTx(false);
-  }, [canProgressMilestone]);
+  }, []);
 
-  const approveAndPayMilestone = useCallback(async (contractId: string, milestoneId: string) => {
+  const resolveDispute = useCallback(async (contractId: string, resolution: 'refund' | 'release') => {
     setIsPendingTx(true);
     await new Promise(resolve => setTimeout(resolve, 2000));
     
     setContracts(prev => prev.map(c => {
       if (c.id !== contractId) return c;
-
-      const milestone = c.milestones.find((m) => m.id === milestoneId);
-      if (!milestone) return c;
-
-      const escrowAvailable = c.depositedAmount - c.releasedAmount;
-      const canPay =
-        c.status === 'Active' &&
-        milestone.status === 'Completed' &&
-        canProgressMilestone(c.milestones, milestoneId) &&
-        escrowAvailable >= milestone.amount;
-
-      if (!canPay) return c;
-
-      const updatedMilestones = c.milestones.map((m): Milestone =>
-        m.id === milestoneId ? { ...m, status: 'Paid' } : m
-      );
-      const isFullyPaid = updatedMilestones.every((m) => m.status === 'Paid');
-
-      return {
-        ...c,
-        releasedAmount: c.releasedAmount + milestone.amount,
-        status: isFullyPaid ? 'Completed' : 'Active',
-        milestones: updatedMilestones
-      };
+      
+      if (resolution === 'refund') {
+        // Refund all deposited funds to client
+        return {
+          ...c,
+          status: 'Completed',
+          disputeStatus: 'Refunded' as const,
+          depositedAmount: 0,
+          releasedAmount: 0,
+          milestones: c.milestones.map(m => ({ ...m, status: 'Pending' as const }))
+        };
+      } else {
+        // Release remaining locked funds to freelancer
+        return {
+          ...c,
+          status: 'Completed',
+          disputeStatus: 'Resolved' as const,
+          releasedAmount: c.depositedAmount,
+          milestones: c.milestones.map(m => ({ ...m, status: 'Paid' as const }))
+        };
+      }
     }));
     setIsPendingTx(false);
-  }, [canProgressMilestone]);
+  }, []);
 
   return {
     contracts,
@@ -537,6 +684,11 @@ export function useEscrow() {
     clientReputation,
     userMode,
     setUserMode,
+    walletAddress,
+    connectWallet,
+    isWrongChain,
+    chainId: escrowConfig.chainId,
+    refreshContracts: syncChainState,
     isPendingTx,
     sendProposal,
     acceptProposal,
@@ -547,6 +699,8 @@ export function useEscrow() {
     fundContract,
     markMilestoneCompleted,
     approveAndPayMilestone,
+    initiateDispute,
+    resolveDispute,
     totalEarnings,
   };
 }

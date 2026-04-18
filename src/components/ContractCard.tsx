@@ -1,5 +1,7 @@
 import { Button } from './ui/Button';
 import { MilestoneItem } from './MilestoneItem';
+import { EscrowSecurity } from './EscrowSecurity';
+import { DisputePanel } from './DisputePanel';
 import { cn, truncateAddress, formatBalance } from '../lib/utils';
 import type { Contract, UserMode } from '../types';
 import { motion } from 'motion/react';
@@ -87,6 +89,22 @@ export function ContractCard({ contract, userMode, onFund, onApprove, onComplete
             />
           ))}
         </div>
+      </div>
+
+      {/* Escrow Security Section */}
+      <div className="p-5 border-t border-bento-border bg-slate-950">
+        <EscrowSecurity contract={contract} />
+      </div>
+
+      {/* Dispute Panel */}
+      <div className="p-5 border-t border-bento-border bg-slate-950">
+        <DisputePanel 
+          contract={contract} 
+          userMode={userMode}
+          onInitiateDispute={() => {
+            // Dispatch event or call handler
+          }}
+        />
       </div>
     </div>
   );

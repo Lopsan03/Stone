@@ -6,12 +6,17 @@ import { DemoSwitcher } from './components/DemoSwitcher';
 import { MarketplaceBoard } from './components/MarketplaceBoard';
 import { ProposalBoard } from './components/ProposalBoard';
 import { RelationshipBoard } from './components/RelationshipBoard';
+import { AntifraudGuarantee } from './components/AntifraudGuarantee';
 import { useEscrow } from './hooks/useEscrow';
 import { Layout, History, Sparkles, Globe, Handshake, FolderKanban } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 export default function App() {
   const {
+    walletAddress,
+    connectWallet,
+    isWrongChain,
+    chainId,
     activeContracts,
     completedContracts,
     activeTab,
@@ -46,7 +51,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-bento-bg font-sans text-bento-text-bold selection:bg-bento-primary-soft selection:text-bento-primary tracking-tight">
-      <Header />
+      <Header userAddress={walletAddress} onConnectWallet={connectWallet} isWrongChain={isWrongChain} chainId={chainId} />
 
       <main className="max-w-7xl mx-auto px-6 pt-24 pb-20 grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-6">
         {/* Left Column (Sidebar) - Bento Style */}
@@ -130,6 +135,9 @@ export default function App() {
               </div>
             </div>
           </div>
+
+          {/* Anti-Fraud Guarantee Banner */}
+          {activeTab === 'Contracts' && <AntifraudGuarantee />}
 
           {activeTab === 'Marketplace' && (
             <MarketplaceBoard

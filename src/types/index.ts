@@ -51,7 +51,9 @@ export interface Milestone {
   status: MilestoneStatus;
 }
 
-export type ContractStatus = 'Draft' | 'Proposed' | 'Funded' | 'Active' | 'Completed' | 'Disputed';
+export type ContractStatus = 'Draft' | 'Proposed' | 'Funded' | 'Active' | 'Completed' | 'Disputed' | 'Arbitration';
+
+export type DisputeStatus = 'None' | 'Pending' | 'UnderReview' | 'Resolved' | 'Refunded';
 
 export interface Contract {
   id: string;
@@ -66,6 +68,9 @@ export interface Contract {
   status: ContractStatus;
   milestones: Milestone[];
   createdAt: number;
+  disputeStatus?: DisputeStatus;
+  disputeReason?: string;
+  disputedAt?: number;
 }
 
 export interface Reputation {
